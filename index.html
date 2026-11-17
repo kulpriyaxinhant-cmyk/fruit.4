@@ -1,0 +1,317 @@
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fruit Recognition AI</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg,#e8f5e9,#c8e6c9);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.container {
+    background: white;
+    width: 100%;
+    max-width: 500px;
+    padding: 30px;
+    border-radius: 22px;
+    box-shadow: 0 8px 25px #0002;
+    text-align: center;
+}
+
+h1 { color: #218c4a; }
+
+.upload-box {
+    display: block;
+    border: 2px dashed #4caf50;
+    background: #f4fff5;
+    padding: 25px;
+    border-radius: 15px;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+.upload-icon { font-size: 50px; }
+
+input[type=file] { display: none; }
+
+#preview {
+    display: none;
+    max-width: 100%;
+    max-height: 300px;
+    margin: 20px auto;
+    border-radius: 12px;
+}
+
+button {
+    width: 100%;
+    padding: 14px;
+    margin-top: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+#uploadBtn {
+    background: #219653;
+    color: white;
+}
+
+#predictBtn {
+    background: #ff9800;
+    color: white;
+}
+
+button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+#status {
+    color: #666;
+    margin-top: 15px;
+}
+
+.prediction {
+    background: #f1f8f3;
+    padding: 12px;
+    margin-top: 10px;
+    border-radius: 10px;
+    text-align: left;
+}
+
+.progress {
+    background: #ddd;
+    height: 10px;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.progress-bar {
+    background: #28a745;
+    height: 100%;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🍎 Fruit Recognition AI</h1>
+<p>ระบบตรวจจับผลไม้ด้วย AI</p>
+
+<label for="imageUpload" class="upload-box">
+    <div class="upload-icon">📸</div>
+    <h3>เลือกภาพผลไม้</h3>
+    <p>คลิกเพื่อเลือกรูปภาพจากเครื่อง</p>
+    <small>JPG / PNG / JPEG</small>
+</label>
+
+<input type="file"
+       id="imageUpload"
+       accept="image/jpeg,image/png,image/webp">
+
+<img id="preview" alt="ภาพตัวอย่าง">
+
+<button id="uploadBtn" onclick="uploadImage()">
+    📤 Upload Image
+</button>
+
+<button id="predictBtn" onclick="predict()" disabled>
+    🔍 ตรวจจับผลไม้
+</button>
+
+<div id="status">กำลังโหลด AI...</div>
+
+<div id="result"></div>
+
+</div>
+
+<script>
+
+// เปลี่ยนชื่อ URL เป็น MODEL_URL
+const MODEL_URL = "./my_model/";
+
+let model = null;
+let imageUploaded = false;
+
+// โหลดโมเดล
+async function loadModel() {
+    try {
+        document.getElementById("status").innerText =
+            "⏳ กำลังโหลด AI Model...";
+
+        model = await tmImage.load(
+            MODEL_URL + "model.json",
+            MODEL_URL + "metadata.json"
+        );
+
+        document.getElementById("status").innerText =
+            "✅ AI พร้อมใช้งาน";
+
+    } catch (error) {
+        console.error(error);
+        document.getElementById("status").innerText =
+            "❌ โหลดโมเดลไม่สำเร็จ กรุณาตรวจสอบโฟลเดอร์ my_model";
+    }
+}
+
+// เลือกภาพ
+const imageInput = document.getElementById("imageUpload");
+
+imageInput.addEventListener("change", function(event) {
+
+    const file = event.target.files[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+        alert("กรุณาเลือกไฟล์รูปภาพ");
+        imageInput.value = "";
+        return;
+    }
+
+    const preview = document.getElementById("preview");
+
+    // ใช้ window.URL เพื่อไม่ให้ชื่อชนกับตัวแปรอื่น
+    const imageURL = window.URL.createObjectURL(file);
+
+    preview.onload = function() {
+        preview.style.display = "block";
+        imageUploaded = false;
+
+        document.getElementById("predictBtn").disabled = true;
+        document.getElementById("result").innerHTML = "";
+
+        document.getElementById("status").innerText =
+            "✅ เลือกรูปภาพแล้ว กรุณากด Upload";
+    };
+
+    preview.onerror = function() {
+        alert("ไม่สามารถเปิดรูปภาพนี้ได้");
+    };
+
+    preview.src = imageURL;
+});
+
+// ปุ่ม Upload
+function uploadImage() {
+
+    const file = imageInput.files[0];
+    const preview = document.getElementById("preview");
+
+    if (!file) {
+        alert("กรุณาเลือกภาพก่อน");
+        return;
+    }
+
+    if (!preview.complete || !preview.naturalWidth) {
+        alert("กรุณารอให้ภาพโหลดเสร็จก่อน");
+        return;
+    }
+
+    imageUploaded = true;
+
+    document.getElementById("predictBtn").disabled = false;
+
+    document.getElementById("status").innerText =
+        "✅ Upload สำเร็จ พร้อมตรวจจับผลไม้";
+}
+
+// ตรวจจับผลไม้
+async function predict() {
+
+    if (!model) {
+        alert("AI ยังโหลดไม่เสร็จ กรุณารอสักครู่");
+        return;
+    }
+
+    if (!imageUploaded) {
+        alert("กรุณา Upload รูปภาพก่อน");
+        return;
+    }
+
+    const preview = document.getElementById("preview");
+
+    const predictBtn = document.getElementById("predictBtn");
+
+    predictBtn.disabled = true;
+
+    document.getElementById("status").innerText =
+        "🔍 กำลังตรวจจับผลไม้...";
+
+    try {
+
+        const predictions = await model.predict(preview);
+
+        predictions.sort((a,b) =>
+            b.probability - a.probability
+        );
+
+        let html = "<h3>📊 ผลการตรวจจับ</h3>";
+
+        predictions.forEach(item => {
+
+            const percent =
+                (item.probability * 100).toFixed(2);
+
+            html += `
+            <div class="prediction">
+
+                <strong>${item.className}</strong>
+
+                <span style="float:right">
+                    ${percent}%
+                </span>
+
+                <div class="progress">
+                    <div class="progress-bar"
+                    style="width:${percent}%">
+                    </div>
+                </div>
+
+            </div>`;
+        });
+
+        document.getElementById("result").innerHTML = html;
+
+        document.getElementById("status").innerText =
+            "✅ ตรวจจับเสร็จเรียบร้อย";
+
+    } catch(error) {
+
+        console.error(error);
+
+        document.getElementById("status").innerText =
+            "❌ เกิดข้อผิดพลาดในการตรวจจับ";
+
+    } finally {
+        predictBtn.disabled = false;
+    }
+}
+
+// เริ่มต้นระบบ
+loadModel();
+
+</script>
+
+</body>
+</html>
